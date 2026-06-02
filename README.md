@@ -2,6 +2,14 @@
 
 A small Flask web UI for downloading YouTube videos or extracting audio as MP3 on your own server.
 
+## Disclaimer
+
+This project is for personal, private, self-hosted use. Only download content that you own, have permission to download, or are otherwise legally allowed to save in your jurisdiction.
+
+Using this tool may violate YouTube's Terms of Service or a creator's copyright if used improperly. You are responsible for how you use it, where you host it, and what content you download or store.
+
+Do not expose this app publicly without strong authentication, HTTPS, and appropriate access controls.
+
 ## Features
 
 - Login page with configurable username/password
