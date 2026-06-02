@@ -19,6 +19,8 @@ Do not expose this app publicly without strong authentication, HTTPS, and approp
 - Video quality and MP3 bitrate choices
 - Optional playlist downloads
 - Storage usage and free disk display
+- Pause, resume, and cancel controls for running or queued jobs
+- Playlist downloads keep going when individual videos are unavailable and record errors in the job log
 
 ## Setup
 
@@ -79,3 +81,5 @@ Default login:
 - This is intended for a private self-hosted server.
 - Only YouTube URLs are accepted.
 - Run one PM2 instance for this version. SQLite stores history, but the active download queue lives in the Python process.
+- Pause and cancel are cooperative. Queued jobs respond immediately; active jobs respond when `yt-dlp` reaches the next progress callback.
+- Playlist downloads use `yt-dlp`'s skip-on-error behavior. Unavailable videos are logged in the job history instead of stopping the whole playlist.

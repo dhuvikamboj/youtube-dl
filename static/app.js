@@ -91,15 +91,48 @@ function renderJobs(jobs) {
     const status = document.createElement("span");
     const url = document.createElement("small");
     const time = document.createElement("time");
+    const side = document.createElement("div");
+    const actions = document.createElement("div");
 
     title.textContent = `${job.kind} ${job.quality}${job.playlist ? " playlist" : ""}`;
     status.textContent = `${job.status}: ${job.progress}`;
     url.textContent = job.url;
     time.textContent = job.created_at;
     body.append(title, status, url);
-    item.append(body, time);
+
+    if (job.logs) {
+      const logs = document.createElement("pre");
+      logs.textContent = job.logs;
+      body.append(logs);
+    }
+
+    side.className = "job-side";
+    actions.className = "job-actions";
+
+    if (job.status === "paused") {
+      actions.append(jobActionButton(job.id, "resume", "Resume", "secondary"));
+    } else if (["queued", "downloading", "processing"].includes(job.status)) {
+      actions.append(jobActionButton(job.id, "pause", "Pause", "secondary"));
+    }
+
+    if (["queued", "downloading", "processing", "paused"].includes(job.status)) {
+      actions.append(jobActionButton(job.id, "cancel", "Cancel", "danger"));
+    }
+
+    side.append(time, actions);
+    item.append(body, side);
     jobsList.append(item);
   }
+}
+
+function jobActionButton(jobId, action, label, className) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.dataset.jobAction = action;
+  button.dataset.jobId = jobId;
+  button.textContent = label;
+  return button;
 }
 
 async function refreshFiles() {
@@ -128,6 +161,11 @@ async function pollJob(jobId) {
 
   if (job.status === "error") {
     setStatus(`Error: ${job.error}`, "error");
+    return;
+  }
+
+  if (job.status === "canceled") {
+    setStatus("Canceled", "error");
     return;
   }
 
@@ -181,6 +219,24 @@ filesList.addEventListener("click", async (event) => {
   renderFiles(data.downloads);
   updateDisk(data.disk);
   setStatus(`Deleted: ${filename}`, "complete");
+});
+
+jobsList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-job-action]");
+  if (!button) return;
+
+  const action = button.dataset.jobAction;
+  const jobId = button.dataset.jobId;
+  const response = await fetch(`/api/jobs/${jobId}/${action}`, { method: "POST" });
+  const data = await response.json();
+
+  if (!response.ok) {
+    setStatus(data.error || `Could not ${action} job.`, "error");
+    return;
+  }
+
+  setStatus(`${action}: ${data.status}`);
+  await refreshJobs();
 });
 
 for (const input of kindInputs) {

@@ -90,8 +90,23 @@
                 <strong>{{ job.kind }} {{ job.quality }}</strong>
                 <span>{{ job.status }}: {{ job.progress }}</span>
                 <small>{{ job.url }}</small>
+                {% if job.logs %}
+                  <pre>{{ job.logs }}</pre>
+                {% endif %}
               </div>
-              <time>{{ job.created_at }}</time>
+              <div class="job-side">
+                <time>{{ job.created_at }}</time>
+                <div class="job-actions">
+                  {% if job.status == "paused" %}
+                    <button class="secondary" type="button" data-job-action="resume" data-job-id="{{ job.id }}">Resume</button>
+                  {% elif job.status in ["queued", "downloading", "processing"] %}
+                    <button class="secondary" type="button" data-job-action="pause" data-job-id="{{ job.id }}">Pause</button>
+                  {% endif %}
+                  {% if job.status in ["queued", "downloading", "processing", "paused"] %}
+                    <button class="danger" type="button" data-job-action="cancel" data-job-id="{{ job.id }}">Cancel</button>
+                  {% endif %}
+                </div>
+              </div>
             </li>
           {% else %}
             <li class="empty">No jobs yet.</li>

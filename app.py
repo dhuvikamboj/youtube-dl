@@ -5,6 +5,7 @@ import secrets
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -52,12 +53,32 @@ VIDEO_FORMATS = {
     "480": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
 }
 AUDIO_QUALITIES = {"128", "192", "320"}
+CONTROLLED_STATUSES = {"queued", "downloading", "processing", "paused"}
 
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS)
 db_lock = threading.Lock()
+
+
+class DownloadCanceled(Exception):
+    pass
+
+
+class JobLogger:
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+
+    def debug(self, message: str) -> None:
+        if message.startswith("[debug]"):
+            append_job_log(self.job_id, message)
+
+    def warning(self, message: str) -> None:
+        append_job_log(self.job_id, f"WARNING: {message}")
+
+    def error(self, message: str) -> None:
+        append_job_log(self.job_id, f"ERROR: {message}")
 
 
 def utc_now() -> str:
@@ -84,11 +105,15 @@ def init_db() -> None:
                 progress TEXT NOT NULL,
                 filename TEXT,
                 error TEXT,
+                logs TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        if "logs" not in columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN logs TEXT NOT NULL DEFAULT ''")
 
 
 init_db()
@@ -168,6 +193,26 @@ def update_job(job_id: str, **changes: Any) -> None:
         conn.execute(f"UPDATE jobs SET {assignments} WHERE id = ?", values)
 
 
+def append_job_log(job_id: str, message: str) -> None:
+    line = f"[{utc_now()}] {message}".strip()
+    with db_lock, get_db() as conn:
+        row = conn.execute("SELECT logs FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row:
+            return
+        logs = "\n".join((row["logs"], line)).strip()
+        conn.execute("UPDATE jobs SET logs = ?, updated_at = ? WHERE id = ?", (logs[-12000:], utc_now(), job_id))
+
+
+def wait_while_paused(job_id: str) -> None:
+    while True:
+        job = get_job_by_id(job_id)
+        if not job or job["status"] == "canceled":
+            raise DownloadCanceled("Download canceled.")
+        if job["status"] != "paused":
+            return
+        time.sleep(0.5)
+
+
 def list_downloads() -> list[dict[str, Any]]:
     files = []
     for path in sorted(DOWNLOAD_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
@@ -201,6 +246,11 @@ def safe_download_path(filename: str) -> Path | None:
 
 
 def progress_hook(job_id: str, data: dict[str, Any]) -> None:
+    wait_while_paused(job_id)
+    job = get_job_by_id(job_id)
+    if not job or job["status"] == "canceled":
+        raise DownloadCanceled("Download canceled.")
+
     status = data.get("status")
     if status == "downloading":
         percent = data.get("_percent_str", "").strip()
@@ -221,6 +271,11 @@ def run_download(job_id: str) -> None:
     job = get_job_by_id(job_id)
     if not job:
         return
+    try:
+        wait_while_paused(job_id)
+    except DownloadCanceled:
+        update_job(job_id, status="canceled", progress="Canceled")
+        return
 
     filename_template = "%(playlist_index)03d - %(title).180B [%(id)s].%(ext)s" if job["playlist"] else "%(title).180B [%(id)s].%(ext)s"
     output_template = str(DOWNLOAD_DIR / filename_template)
@@ -228,6 +283,9 @@ def run_download(job_id: str) -> None:
         "outtmpl": output_template,
         "restrictfilenames": True,
         "noplaylist": not job["playlist"],
+        "ignoreerrors": job["playlist"],
+        "skip_unavailable_fragments": True,
+        "logger": JobLogger(job_id),
         "progress_hooks": [lambda data: progress_hook(job_id, data)],
     }
 
@@ -251,13 +309,19 @@ def run_download(job_id: str) -> None:
     try:
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(job["url"], download=True)
-            prepared = Path(ydl.prepare_filename(info))
+            if info is None:
+                raise RuntimeError("No downloadable entries were found.")
             if job["playlist"]:
                 final_name = "Playlist complete"
             else:
+                prepared = Path(ydl.prepare_filename(info))
                 final_name = prepared.with_suffix(".mp3").name if job["kind"] == "audio" else prepared.name
         update_job(job_id, status="complete", progress="Complete", filename=final_name, error=None)
+    except DownloadCanceled:
+        append_job_log(job_id, "Download canceled by user.")
+        update_job(job_id, status="canceled", progress="Canceled")
     except Exception as exc:  # yt-dlp exposes several exception types; show the useful message.
+        append_job_log(job_id, str(exc))
         update_job(job_id, status="error", progress="Failed", error=str(exc))
 
 
@@ -329,6 +393,43 @@ def get_job(job_id: str):
     if not job:
         return jsonify({"error": "Job not found."}), 404
     return jsonify(job)
+
+
+@app.post("/api/jobs/<job_id>/pause")
+def pause_job(job_id: str):
+    job = get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found."}), 404
+    if job["status"] not in CONTROLLED_STATUSES:
+        return jsonify({"error": f"Cannot pause a {job['status']} job."}), 400
+    if job["status"] != "paused":
+        append_job_log(job_id, "Pause requested by user.")
+        update_job(job_id, status="paused", progress="Paused")
+    return jsonify(get_job_by_id(job_id))
+
+
+@app.post("/api/jobs/<job_id>/resume")
+def resume_job(job_id: str):
+    job = get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found."}), 404
+    if job["status"] != "paused":
+        return jsonify({"error": f"Cannot resume a {job['status']} job."}), 400
+    append_job_log(job_id, "Resume requested by user.")
+    update_job(job_id, status="queued", progress="Resumed; waiting for worker")
+    return jsonify(get_job_by_id(job_id))
+
+
+@app.post("/api/jobs/<job_id>/cancel")
+def cancel_job(job_id: str):
+    job = get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found."}), 404
+    if job["status"] not in CONTROLLED_STATUSES:
+        return jsonify({"error": f"Cannot cancel a {job['status']} job."}), 400
+    append_job_log(job_id, "Cancel requested by user.")
+    update_job(job_id, status="canceled", progress="Cancel requested")
+    return jsonify(get_job_by_id(job_id))
 
 
 @app.get("/api/downloads")

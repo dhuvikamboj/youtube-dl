@@ -250,12 +250,35 @@ button:hover {
 }
 
 .jobs li {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .jobs div {
   display: grid;
   gap: 4px;
+}
+
+.jobs pre {
+  max-height: 140px;
+  overflow: auto;
+  margin: 8px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.job-side {
+  justify-items: end;
+}
+
+.job-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .files a {
