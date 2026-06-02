@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login - YouTube Downloader</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="auth-shell">
+      <section class="panel">
+        <div class="heading">
+          <p class="eyebrow">Private access</p>
+          <h1>Login</h1>
+          <p>Enter the server username and password.</p>
+        </div>
+
+        <form class="download-form" action="/login" method="post">
+          <label>
+            Username
+            <input name="username" type="text" autocomplete="username" required autofocus>
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit">Login</button>
+        </form>
+
+        {% if error %}
+          <div class="status" data-state="error">{{ error }}</div>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

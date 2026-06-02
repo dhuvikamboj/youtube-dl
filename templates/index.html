@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Self-hosted YouTube Downloader</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel">
+        <div class="top-row">
+          <div class="heading">
+            <p class="eyebrow">Self-hosted</p>
+            <h1>YouTube Downloader</h1>
+            <p>Download a YouTube video file or convert audio to MP3 on this server.</p>
+          </div>
+          <form action="/logout" method="post">
+            <button class="secondary" type="submit">Logout</button>
+          </form>
+        </div>
+
+        <form id="download-form" class="download-form">
+          <label for="url">YouTube URL</label>
+          <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+
+          <div class="mode-row">
+            <label>
+              <input type="radio" name="kind" value="video" checked>
+              Video
+            </label>
+            <label>
+              <input type="radio" name="kind" value="audio">
+              Audio MP3
+            </label>
+            <label>
+              <input type="checkbox" name="playlist" value="1">
+              Allow playlist
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              Video quality
+              <select id="video-quality" name="video_quality">
+                {% for quality in video_formats %}
+                  <option value="{{ quality }}">{{ quality }}{% if quality != "best" %}p max{% endif %}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Audio quality
+              <select id="audio-quality" name="audio_quality" disabled>
+                {% for quality in audio_qualities %}
+                  <option value="{{ quality }}" {% if quality == "192" %}selected{% endif %}>{{ quality }} kbps</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <button type="submit">Start download</button>
+        </form>
+
+        <div id="status" class="status" hidden></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Storage</h2>
+          <span>{{ max_workers }} active download{{ "" if max_workers == 1 else "s" }} at a time</span>
+        </div>
+        <div class="meter">
+          <div id="disk-bar" style="width: {{ ((disk.used / disk.total) * 100)|round(1) }}%"></div>
+        </div>
+        <div id="disk" class="stats" data-total="{{ disk.total }}" data-used="{{ disk.used }}" data-free="{{ disk.free }}" data-downloads="{{ disk.downloads }}">
+          <span>Downloads: {{ "%.1f"|format(disk.downloads / 1024 / 1024) }} MB</span>
+          <span>Free: {{ "%.1f"|format(disk.free / 1024 / 1024 / 1024) }} GB</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Download history</h2>
+          <button id="refresh-jobs" class="secondary" type="button">Refresh</button>
+        </div>
+        <ul id="jobs" class="jobs">
+          {% for job in jobs %}
+            <li>
+              <div>
+                <strong>{{ job.kind }} {{ job.quality }}</strong>
+                <span>{{ job.status }}: {{ job.progress }}</span>
+                <small>{{ job.url }}</small>
+              </div>
+              <time>{{ job.created_at }}</time>
+            </li>
+          {% else %}
+            <li class="empty">No jobs yet.</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Downloaded files</h2>
+          <button id="refresh" class="secondary" type="button">Refresh</button>
+        </div>
+        <ul id="files" class="files">
+          {% for file in downloads %}
+            <li>
+              <a href="{{ file.url }}">{{ file.name }}</a>
+              <span>{{ "%.1f"|format(file.size / 1024 / 1024) }} MB</span>
+              <button class="danger" type="button" data-delete="{{ file.name }}">Delete</button>
+            </li>
+          {% else %}
+            <li class="empty">No downloads yet.</li>
+          {% endfor %}
+        </ul>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
