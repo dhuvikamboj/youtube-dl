@@ -48,6 +48,14 @@ def extract_video_id(url: str) -> str | None:
     return parse_qs(parsed.query).get("v", [None])[0]
 
 
+def extract_playlist_id(url: str) -> str | None:
+    parsed = urlparse(url)
+    pl_id = parse_qs(parsed.query).get("list", [None])[0]
+    if pl_id and re.match(r"^[A-Za-z0-9_\-]+$", pl_id):
+        return pl_id
+    return None
+
+
 def check_archive(video_id: str) -> bool:
     if not ARCHIVE_FILE.exists():
         return False
@@ -425,6 +433,10 @@ def run_download(job_id: str) -> None:
 
     if job.get("force"):
         options["force_overwrites"] = True
+    elif is_playlist:
+        playlist_id = extract_playlist_id(job["url"])
+        if playlist_id:
+            options["download_archive"] = str(DOWNLOAD_DIR / f".archive-{playlist_id}.txt")
     else:
         options["download_archive"] = str(ARCHIVE_FILE)
 
@@ -720,10 +732,13 @@ def download_file(filename: str):
 
 @app.get("/api/archive")
 def get_archive():
-    if not ARCHIVE_FILE.exists():
-        return jsonify({"entries": []})
-    entries = [l.strip() for l in ARCHIVE_FILE.read_text().splitlines() if l.strip()]
-    return jsonify({"entries": entries})
+    result: dict[str, list[str]] = {}
+    for archive_path in [ARCHIVE_FILE, *DOWNLOAD_DIR.glob(".archive-*.txt")]:
+        if not archive_path.exists():
+            continue
+        entries = [l.strip() for l in archive_path.read_text().splitlines() if l.strip()]
+        result[archive_path.name] = entries
+    return jsonify({"archives": result})
 
 
 @app.delete("/api/archive/<video_id>")
