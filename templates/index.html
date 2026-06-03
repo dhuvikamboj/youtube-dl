@@ -13,7 +13,7 @@
           <div class="heading">
             <p class="eyebrow">Self-hosted</p>
             <h1>YouTube Downloader</h1>
-            <p>Download a YouTube video file or convert audio to MP3 on this server.</p>
+            <p>Download a YouTube video or convert to audio on this server.</p>
           </div>
           <form action="/logout" method="post">
             <button class="secondary" type="submit">Logout</button>
@@ -24,6 +24,8 @@
           <label for="url">YouTube URL</label>
           <input id="url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
 
+          <div id="info-preview" class="info-preview" hidden></div>
+
           <div class="mode-row">
             <label>
               <input type="radio" name="kind" value="video" checked>
@@ -31,11 +33,11 @@
             </label>
             <label>
               <input type="radio" name="kind" value="audio">
-              Audio MP3
+              Audio
             </label>
             <label>
-              <input type="checkbox" name="playlist" value="1">
-              Allow playlist
+              <input id="playlist-checkbox" type="checkbox" name="playlist" value="1">
+              Playlist
             </label>
           </div>
 
@@ -56,6 +58,36 @@
                 {% endfor %}
               </select>
             </label>
+            <label>
+              Audio format
+              <select id="audio-format" name="audio_format" disabled>
+                {% for fmt in audio_formats %}
+                  <option value="{{ fmt }}" {% if fmt == "mp3" %}selected{% endif %}>{{ fmt | upper }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div id="playlist-items-row" hidden>
+            <label for="playlist-items">
+              Playlist items (optional)
+              <input id="playlist-items" name="playlist_items" type="text" placeholder="e.g. 1-10 or 1,3,5-8">
+            </label>
+          </div>
+
+          <div class="options-row">
+            <label class="inline-label">
+              <input type="checkbox" name="embed_meta" value="1">
+              Embed metadata
+            </label>
+            <label class="inline-label">
+              <input type="checkbox" name="embed_thumb" value="1">
+              Embed thumbnail
+            </label>
+            <label class="inline-label">
+              <input type="checkbox" name="subtitles" value="1">
+              Download subtitles
+            </label>
           </div>
 
           <button type="submit">Start download</button>
@@ -72,7 +104,7 @@
         <div class="meter">
           <div id="disk-bar" style="width: {{ ((disk.used / disk.total) * 100)|round(1) }}%"></div>
         </div>
-        <div id="disk" class="stats" data-total="{{ disk.total }}" data-used="{{ disk.used }}" data-free="{{ disk.free }}" data-downloads="{{ disk.downloads }}">
+        <div id="disk" class="stats">
           <span>Downloads: {{ "%.1f"|format(disk.downloads / 1024 / 1024) }} MB</span>
           <span>Free: {{ "%.1f"|format(disk.free / 1024 / 1024 / 1024) }} GB</span>
         </div>
@@ -80,16 +112,27 @@
 
       <section class="panel">
         <div class="section-title">
-          <h2>Download history</h2>
-          <button id="refresh-jobs" class="secondary" type="button">Refresh</button>
+          <h2>Download history <span class="job-count">({{ total_jobs }})</span></h2>
+          <div class="section-actions">
+            <button id="clear-finished" class="secondary" type="button">Clear finished</button>
+            <button id="refresh-jobs" class="secondary" type="button">Refresh</button>
+          </div>
         </div>
         <ul id="jobs" class="jobs">
           {% for job in jobs %}
-            <li>
+            <li data-job-id="{{ job.id }}">
               <div>
-                <strong>{{ job.kind }} {{ job.quality }}</strong>
-                <span>{{ job.status }}: {{ job.progress }}</span>
+                <div class="job-title-row">
+                  <strong>{{ job.kind }} {{ job.quality }}{% if job.kind == "audio" and job.audio_format %} {{ job.audio_format | upper }}{% endif %}{% if job.playlist %} · playlist{% endif %}</strong>
+                  <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+                </div>
+                <span>{{ job.progress }}</span>
                 <small>{{ job.url }}</small>
+                {% if job.status == "complete" and job.filename and job.filename != "Playlist complete" %}
+                  <a class="job-file-link" href="/downloads/{{ job.filename | urlencode }}">{{ job.filename }}</a>
+                {% elif job.status == "complete" and job.filename == "Playlist complete" %}
+                  <span class="job-file-link">Playlist complete — see Downloaded files</span>
+                {% endif %}
                 {% if job.logs %}
                   <pre>{{ job.logs }}</pre>
                 {% endif %}
@@ -105,6 +148,15 @@
                   {% if job.status in ["queued", "downloading", "processing", "paused"] %}
                     <button class="danger" type="button" data-job-action="cancel" data-job-id="{{ job.id }}">Cancel</button>
                   {% endif %}
+                  {% if job.status in ["error", "canceled"] %}
+                    <button class="secondary" type="button" data-job-action="retry" data-job-id="{{ job.id }}">Retry</button>
+                  {% endif %}
+                  {% if job.status == "skipped" %}
+                    <button class="secondary" type="button" data-job-action="retry" data-job-id="{{ job.id }}" data-force="1">Force re-download</button>
+                  {% endif %}
+                  {% if job.status in ["complete", "error", "canceled", "skipped"] %}
+                    <button class="danger" type="button" data-job-action="delete" data-job-id="{{ job.id }}">Delete</button>
+                  {% endif %}
                 </div>
               </div>
             </li>
@@ -112,6 +164,11 @@
             <li class="empty">No jobs yet.</li>
           {% endfor %}
         </ul>
+        {% if total_jobs > jobs | length %}
+          <button id="load-more" class="secondary load-more" type="button">Load more</button>
+        {% else %}
+          <button id="load-more" class="secondary load-more" type="button" hidden>Load more</button>
+        {% endif %}
       </section>
 
       <section class="panel">
