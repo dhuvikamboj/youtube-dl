@@ -514,7 +514,7 @@ def create_download():
     quality = str(payload.get("quality", "best")).strip()
     audio_format = str(payload.get("audio_format", "mp3")).strip()
     playlist = bool(payload.get("playlist", False))
-    playlist_items = str(payload.get("playlist_items", "")).strip() or None
+    playlist_items = re.sub(r"\s+", "", str(payload.get("playlist_items", ""))).strip() or None
     embed_meta = bool(payload.get("embed_meta", False))
     embed_thumb = bool(payload.get("embed_thumb", False))
     subtitles = bool(payload.get("subtitles", False))
