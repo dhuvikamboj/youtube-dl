@@ -398,7 +398,7 @@ def run_download(job_id: str) -> None:
         format_str = video_format(job["quality"])
 
     if job["embed_meta"]:
-        postprocessors.append({"key": "FFmpegMetadataPP"})
+        postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
 
     if job["embed_thumb"] and audio_fmt != "wav":
         postprocessors.append({"key": "FFmpegThumbnailsConvertor", "format": "jpg"})
